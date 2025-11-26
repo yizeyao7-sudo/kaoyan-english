@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { EssayConfig, GradingResult, ExamType, EssayType } from "../types";
+import { EssayConfig, GradingResult } from "../types";
 import { MOCK_RUBRIC_TEXT, getMaxScore } from "../constants";
 
 const getSystemInstruction = () => {
@@ -10,7 +10,7 @@ const getSystemInstruction = () => {
 const gradingSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    ocrText: { type: Type.STRING, description: "识别出的作文文本 (如果是图片输入)。" },
+    ocrText: { type: Type.STRING, description: "识别出的作文文本 (如果是图片输入) 及 题目关键信息。" },
     totalScore: { type: Type.NUMBER, description: "最终得分。" },
     band: { type: Type.STRING, description: "档次 (例如 '第五档', '第四档')。" },
     breakdown: {
@@ -45,7 +45,8 @@ const gradingSchema: Schema = {
 };
 
 export const gradeEssay = async (
-  input: string | File, // Text string or Image File
+  essayInput: string | File, 
+  questionInput: string | File,
   config: EssayConfig
 ): Promise<GradingResult> => {
   if (!process.env.API_KEY) {
@@ -55,18 +56,41 @@ export const gradeEssay = async (
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const maxScore = getMaxScore(config.examType, config.essayType);
 
-  // Prompt Construction
+  // Construct Prompt based on input types
+  let questionPromptPart = "";
+  let essayPromptPart = "";
+  const parts: any[] = [];
+
+  // Handle Question Input
+  if (typeof questionInput === 'string') {
+    questionPromptPart = `题目要求 (Question/Prompt):\n"${questionInput}"`;
+  } else {
+    // Image Question
+    const qBase64 = await fileToGenerativePart(questionInput);
+    parts.push({ inlineData: { mimeType: questionInput.type, data: qBase64 } });
+    questionPromptPart = `题目要求见附图 [IMAGE_1]。请识别图片中的文字说明及图表数据作为题目要求。`;
+  }
+
+  // Handle Essay Input
+  if (typeof essayInput === 'string') {
+    essayPromptPart = `学生的作文内容:\n"${essayInput}"`;
+  } else {
+    // Image Essay
+    const eBase64 = await fileToGenerativePart(essayInput);
+    parts.push({ inlineData: { mimeType: essayInput.type, data: eBase64 } });
+    
+    // Determine how to refer to this image (Image 1 or Image 2)
+    const imageIndex = typeof questionInput !== 'string' ? "[IMAGE_2]" : "[IMAGE_1]";
+    essayPromptPart = `学生的作文见附图 ${imageIndex}。请先进行OCR识别，然后对识别出的文本进行评分。`;
+  }
+
   const taskPrompt = `
     你正在批改考研英语作文: ${config.examType} - ${config.essayType}.
     该部分满分为 ${maxScore} 分。
     
-    题目要求 (Question/Prompt):
-    "${config.question}"
+    ${questionPromptPart}
 
-    ${typeof input === 'string' 
-      ? `学生的作文内容:\n"${input}"` 
-      : `学生的作文见附图。请先进行OCR识别 (ocrText)，然后进行评分。`
-    }
+    ${essayPromptPart}
 
     请严格按照系统指令中提供的考研英语评分细则进行分析。
     1. 确定档次 (第一档 到 第五档)。
@@ -78,28 +102,12 @@ export const gradeEssay = async (
     7. 提供3-5条具体的**中文**改进建议 (improvementSuggestions)。
   `;
 
+  // Add the text prompt as the last part
+  parts.push({ text: taskPrompt });
+
   try {
     const modelName = 'gemini-2.5-flash'; 
     
-    let contents;
-    if (typeof input === 'string') {
-      contents = [
-        { role: 'user', parts: [{ text: taskPrompt }] }
-      ];
-    } else {
-      // It's a File object (Image)
-      const base64Data = await fileToGenerativePart(input);
-      contents = [
-        {
-          role: 'user',
-          parts: [
-            { inlineData: { mimeType: input.type, data: base64Data } },
-            { text: taskPrompt }
-          ]
-        }
-      ];
-    }
-
     const response = await ai.models.generateContent({
       model: modelName,
       config: {
@@ -108,7 +116,7 @@ export const gradeEssay = async (
         responseSchema: gradingSchema,
         temperature: 0.4, 
       },
-      contents: contents as any 
+      contents: [{ role: 'user', parts: parts }] as any 
     });
 
     const resultText = response.text;

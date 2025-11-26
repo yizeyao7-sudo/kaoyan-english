@@ -7,7 +7,8 @@ import {
   Camera,
   ChevronRight,
   FileText,
-  Shuffle
+  Shuffle,
+  Image as ImageIcon
 } from 'lucide-react';
 import clsx from 'clsx';
 import { ExamType, EssayType, EssayConfig, GradingResult } from './types';
@@ -19,7 +20,12 @@ function App() {
   // Configuration State
   const [examType, setExamType] = useState<ExamType>(ExamType.ENGLISH_II);
   const [essayType, setEssayType] = useState<EssayType>(EssayType.PART_B);
-  const [question, setQuestion] = useState<string>('');
+  
+  // Question State
+  const [questionInputType, setQuestionInputType] = useState<'text' | 'image'>('text');
+  const [questionText, setQuestionText] = useState<string>('');
+  const [questionImageFile, setQuestionImageFile] = useState<File | null>(null);
+  const [questionImagePreview, setQuestionImagePreview] = useState<string | null>(null);
   
   // New State for Year Selection
   const [selectedYear, setSelectedYear] = useState<string>('');
@@ -27,11 +33,11 @@ function App() {
   // Calculate available years from data
   const availableYears = Array.from(new Set(PAST_PAPERS.map(p => p.year))).sort((a, b) => b - a);
   
-  // Input State
-  const [inputType, setInputType] = useState<'text' | 'image'>('text');
-  const [textInput, setTextInput] = useState<string>('');
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // Essay Input State
+  const [essayInputType, setEssayInputType] = useState<'text' | 'image'>('text');
+  const [essayText, setEssayText] = useState<string>('');
+  const [essayImageFile, setEssayImageFile] = useState<File | null>(null);
+  const [essayImagePreview, setEssayImagePreview] = useState<string | null>(null);
 
   // App State
   const [loading, setLoading] = useState(false);
@@ -42,10 +48,12 @@ function App() {
   useEffect(() => {
     if (!selectedYear) return;
     
+    // Switch to text mode when selecting a year
+    setQuestionInputType('text');
+    setQuestionImageFile(null);
+    setQuestionImagePreview(null);
+    
     const year = parseInt(selectedYear);
-    // Find matching paper. Logic: 
-    // 1. Must match Year and EssayType.
-    // 2. Match ExamType OR fallback to English II (since dataset is predominantly English II)
     const paper = PAST_PAPERS.find(p => 
       p.year === year && 
       p.essayType === essayType && 
@@ -53,35 +61,46 @@ function App() {
     );
 
     if (paper) {
-      setQuestion(paper.content);
+      setQuestionText(paper.content);
     } else {
-      // If no exact match found for this specific combo (e.g. English I specific year missing), 
-      // we could clear it, but keeping the English II fallback handles most cases.
-      // If strictly nothing found:
-      setQuestion(`暂无 ${year}年 ${examType} ${essayType} 的真题数据。`);
+      setQuestionText(`暂无 ${year}年 ${examType} ${essayType} 的真题数据。`);
     }
   }, [selectedYear, examType, essayType]);
 
-  const handleQuestionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setQuestion(e.target.value);
-    // If user manually edits, clear the year selection to indicate "Custom"
+  const handleQuestionTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setQuestionText(e.target.value);
+    // If user manually edits text, clear year selection but keep text mode
     setSelectedYear('');
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleQuestionImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setImageFile(file);
+      setQuestionImageFile(file);
+      // Clear year selection if uploading image
+      setSelectedYear('');
+      
       const reader = new FileReader();
       reader.onloadend = () => {
-        setImagePreview(reader.result as string);
+        setQuestionImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleEssayImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setEssayImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setEssayImagePreview(reader.result as string);
       };
       reader.readAsDataURL(file);
     }
   };
 
   const handleRandomTopic = () => {
-    // Filter relevant topics
     const candidates = PAST_PAPERS.filter(p => 
       p.essayType === essayType && 
       (p.examType === examType || p.examType === ExamType.ENGLISH_II) 
@@ -89,7 +108,7 @@ function App() {
 
     if (candidates.length > 0) {
       const random = candidates[Math.floor(Math.random() * candidates.length)];
-      // Setting the year will trigger the useEffect to update the question text
+      setQuestionInputType('text'); // Ensure text mode
       setSelectedYear(random.year.toString());
       setError(null);
     } else {
@@ -98,17 +117,21 @@ function App() {
   };
 
   const handleGrade = async () => {
-    if (!question.trim()) {
-      setError("请输入或随机选择题目要求 (Question/Prompt)。");
+    // Validation
+    if (questionInputType === 'text' && !questionText.trim()) {
+      setError("请输入或选择题目要求。");
+      return;
+    }
+    if (questionInputType === 'image' && !questionImageFile) {
+      setError("请上传题目/图表的图片。");
       return;
     }
     
-    if (inputType === 'text' && !textInput.trim()) {
+    if (essayInputType === 'text' && !essayText.trim()) {
       setError("请输入您的作文内容。");
       return;
     }
-
-    if (inputType === 'image' && !imageFile) {
+    if (essayInputType === 'image' && !essayImageFile) {
       setError("请上传作文图片。");
       return;
     }
@@ -118,13 +141,14 @@ function App() {
 
     const config: EssayConfig = {
       examType,
-      essayType,
-      question
+      essayType
     };
 
     try {
-      const input = inputType === 'text' ? textInput : imageFile!;
-      const data = await gradeEssay(input, config);
+      const essayInput = essayInputType === 'text' ? essayText : essayImageFile!;
+      const questionInput = questionInputType === 'text' ? questionText : questionImageFile!;
+      
+      const data = await gradeEssay(essayInput, questionInput, config);
       setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "发生意外错误，请重试。");
@@ -135,10 +159,11 @@ function App() {
 
   const handleReset = () => {
     setResult(null);
-    setTextInput('');
-    setImageFile(null);
-    setImagePreview(null);
+    setEssayText('');
+    setEssayImageFile(null);
+    setEssayImagePreview(null);
     setError(null);
+    // Optional: Keep question as is for convenience
   };
 
   return (
@@ -192,7 +217,7 @@ function App() {
                               : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
                           )}
                         >
-                          {type === ExamType.ENGLISH_I ? '英语一 (English I)' : '英语二 (English II)'}
+                          {type === ExamType.ENGLISH_I ? '英语一' : '英语二'}
                         </button>
                       ))}
                     </div>
@@ -247,21 +272,78 @@ function App() {
                      <span className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-xs font-bold text-slate-600">2</span>
                      题目要求 (Prompt)
                   </h2>
-                  <button 
-                    onClick={handleRandomTopic}
-                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
-                    title="随机选择一年真题"
-                  >
-                    <Shuffle className="w-3 h-3" />
-                    随机真题
-                  </button>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={handleRandomTopic}
+                      className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
+                      title="随机选择一年真题"
+                    >
+                      <Shuffle className="w-3 h-3" />
+                      随机
+                    </button>
+                  </div>
                 </div>
-                <textarea
-                  value={question}
-                  onChange={handleQuestionChange}
-                  placeholder="在此输入题目要求、图表描述或选择随机真题..."
-                  className="w-full h-32 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
-                />
+
+                {/* Input Method Toggle */}
+                <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg mb-4">
+                   <button
+                    onClick={() => setQuestionInputType('text')}
+                    className={clsx(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all",
+                      questionInputType === 'text' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                   >
+                     <Type className="w-3 h-3" /> 文本
+                   </button>
+                   <button
+                    onClick={() => {
+                      setQuestionInputType('image');
+                      setSelectedYear(''); // Clear year if switching to image
+                    }}
+                    className={clsx(
+                      "flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-md text-xs font-medium transition-all",
+                      questionInputType === 'image' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    )}
+                   >
+                     <ImageIcon className="w-3 h-3" /> 拍照
+                   </button>
+                </div>
+
+                {/* Input Content */}
+                {questionInputType === 'text' ? (
+                  <textarea
+                    value={questionText}
+                    onChange={handleQuestionTextChange}
+                    placeholder="输入题目要求、图表描述或选择年份..."
+                    className="w-full h-40 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
+                  />
+                ) : (
+                  <div className="h-40 border-2 border-dashed border-slate-300 rounded-lg flex flex-col items-center justify-center bg-slate-50 hover:bg-slate-100 transition-colors relative overflow-hidden group">
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleQuestionImageUpload}
+                        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                      />
+                      {questionImagePreview ? (
+                        <div className="relative w-full h-full">
+                           <img src={questionImagePreview} alt="Prompt Preview" className="w-full h-full object-contain p-2" />
+                           <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                              <p className="text-white text-xs font-medium flex items-center gap-1">
+                                <Upload className="w-4 h-4" /> 更换
+                              </p>
+                           </div>
+                        </div>
+                      ) : (
+                        <div className="text-center p-4">
+                          <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center mx-auto mb-2">
+                            <Upload className="w-4 h-4" />
+                          </div>
+                          <p className="text-xs text-slate-500">上传题目/图表图片</p>
+                        </div>
+                      )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -276,20 +358,20 @@ function App() {
                 {/* Input Method Tabs */}
                 <div className="flex space-x-1 bg-slate-100 p-1 rounded-lg mb-6 w-fit">
                   <button
-                    onClick={() => setInputType('text')}
+                    onClick={() => setEssayInputType('text')}
                     className={clsx(
                       "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
-                      inputType === 'text' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      essayInputType === 'text' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     )}
                   >
                     <Type className="w-4 h-4" />
                     文本输入
                   </button>
                   <button
-                    onClick={() => setInputType('image')}
+                    onClick={() => setEssayInputType('image')}
                     className={clsx(
                       "flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-all",
-                      inputType === 'image' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                      essayInputType === 'image' ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
                     )}
                   >
                     <Camera className="w-4 h-4" />
@@ -299,10 +381,10 @@ function App() {
 
                 {/* Input Area */}
                 <div className="flex-1 min-h-[300px]">
-                  {inputType === 'text' ? (
+                  {essayInputType === 'text' ? (
                     <textarea
-                      value={textInput}
-                      onChange={(e) => setTextInput(e.target.value)}
+                      value={essayText}
+                      onChange={(e) => setEssayText(e.target.value)}
                       placeholder="在此开始写作..."
                       className="w-full h-full p-4 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-base leading-relaxed font-serif"
                     />
@@ -311,12 +393,12 @@ function App() {
                       <input
                         type="file"
                         accept="image/*"
-                        onChange={handleImageUpload}
+                        onChange={handleEssayImageUpload}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
                       />
-                      {imagePreview ? (
+                      {essayImagePreview ? (
                         <div className="relative w-full h-full">
-                           <img src={imagePreview} alt="Preview" className="w-full h-full object-contain p-4" />
+                           <img src={essayImagePreview} alt="Essay Preview" className="w-full h-full object-contain p-4" />
                            <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                               <p className="text-white font-medium flex items-center gap-2">
                                 <Upload className="w-5 h-5" /> 点击更换图片

@@ -36,5 +36,5 @@ export interface GradingResult {
 export interface EssayConfig {
   examType: ExamType;
   essayType: EssayType;
-  question: string;
+  // Question is now passed as a separate argument to support Files
 }
