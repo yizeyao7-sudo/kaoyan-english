@@ -10,7 +10,8 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     define: {
       // Stringify the API key to inject it into the code at build time
-      'process.env.API_KEY': JSON.stringify(env.API_KEY),
+      // Prioritize user's specific key name 'yyz_API_KEY'
+      'process.env.API_KEY': JSON.stringify(env.yyz_API_KEY || env.API_KEY),
     },
   };
 });

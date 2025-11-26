@@ -49,7 +49,7 @@ export const gradeEssay = async (
   config: EssayConfig
 ): Promise<GradingResult> => {
   if (!process.env.API_KEY) {
-    throw new Error("API Key is missing.");
+    throw new Error("API Key缺失。请检查您是否在Vercel环境变量中正确设置了 yyz_API_KEY。");
   }
 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
