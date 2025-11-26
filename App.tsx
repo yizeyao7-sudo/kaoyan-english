@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   GraduationCap, 
   Upload, 
@@ -21,6 +21,12 @@ function App() {
   const [essayType, setEssayType] = useState<EssayType>(EssayType.PART_B);
   const [question, setQuestion] = useState<string>('');
   
+  // New State for Year Selection
+  const [selectedYear, setSelectedYear] = useState<string>('');
+  
+  // Calculate available years from data
+  const availableYears = Array.from(new Set(PAST_PAPERS.map(p => p.year))).sort((a, b) => b - a);
+  
   // Input State
   const [inputType, setInputType] = useState<'text' | 'image'>('text');
   const [textInput, setTextInput] = useState<string>('');
@@ -31,6 +37,36 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GradingResult | null>(null);
+
+  // Auto-update question when Year, ExamType or EssayType changes
+  useEffect(() => {
+    if (!selectedYear) return;
+    
+    const year = parseInt(selectedYear);
+    // Find matching paper. Logic: 
+    // 1. Must match Year and EssayType.
+    // 2. Match ExamType OR fallback to English II (since dataset is predominantly English II)
+    const paper = PAST_PAPERS.find(p => 
+      p.year === year && 
+      p.essayType === essayType && 
+      (p.examType === examType || p.examType === ExamType.ENGLISH_II)
+    );
+
+    if (paper) {
+      setQuestion(paper.content);
+    } else {
+      // If no exact match found for this specific combo (e.g. English I specific year missing), 
+      // we could clear it, but keeping the English II fallback handles most cases.
+      // If strictly nothing found:
+      setQuestion(`暂无 ${year}年 ${examType} ${essayType} 的真题数据。`);
+    }
+  }, [selectedYear, examType, essayType]);
+
+  const handleQuestionChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setQuestion(e.target.value);
+    // If user manually edits, clear the year selection to indicate "Custom"
+    setSelectedYear('');
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -48,12 +84,13 @@ function App() {
     // Filter relevant topics
     const candidates = PAST_PAPERS.filter(p => 
       p.essayType === essayType && 
-      (p.examType === examType || p.examType === ExamType.ENGLISH_II) // Use English II questions for both if no English I specific
+      (p.examType === examType || p.examType === ExamType.ENGLISH_II) 
     );
 
     if (candidates.length > 0) {
       const random = candidates[Math.floor(Math.random() * candidates.length)];
-      setQuestion(random.content);
+      // Setting the year will trigger the useEffect to update the question text
+      setSelectedYear(random.year.toString());
       setError(null);
     } else {
       setError("暂无该类型的真题，请手动输入题目。");
@@ -180,6 +217,26 @@ function App() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Year Selection Dropdown */}
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-2">选择真题年份 (Past Paper Year)</label>
+                    <div className="relative">
+                      <select
+                        value={selectedYear}
+                        onChange={(e) => setSelectedYear(e.target.value)}
+                        className="w-full appearance-none bg-white border border-slate-200 text-slate-700 py-2.5 px-4 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                      >
+                        <option value="">自定义题目 (Custom Topic)</option>
+                        {availableYears.map(year => (
+                          <option key={year} value={year}>{year}年真题</option>
+                        ))}
+                      </select>
+                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-slate-500">
+                        <ChevronRight className="h-4 w-4 rotate-90" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -193,6 +250,7 @@ function App() {
                   <button 
                     onClick={handleRandomTopic}
                     className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 bg-blue-50 px-2 py-1 rounded hover:bg-blue-100 transition-colors"
+                    title="随机选择一年真题"
                   >
                     <Shuffle className="w-3 h-3" />
                     随机真题
@@ -200,7 +258,7 @@ function App() {
                 </div>
                 <textarea
                   value={question}
-                  onChange={(e) => setQuestion(e.target.value)}
+                  onChange={handleQuestionChange}
                   placeholder="在此输入题目要求、图表描述或选择随机真题..."
                   className="w-full h-32 p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm resize-none"
                 />
