@@ -123,6 +123,11 @@ export const gradeEssay = async (
 
   } catch (error) {
     console.error("Grading failed:", error);
+    if (error instanceof Error && (error.message.includes("API key not valid") || error.message.includes("API_KEY_INVALID"))) {
+      throw new Error(
+        "API密钥无效。您提供的密钥无法通过Google的验证。请确认您在Vercel环境变量中设置的 `yyz_API_KEY` 是一个有效的 Google Gemini API 密钥。它通常不是以 'sk-' 开头的。请前往 Google AI Studio (makersuite.google.com) 获取正确的密钥。"
+      );
+    }
     throw error;
   }
 };
