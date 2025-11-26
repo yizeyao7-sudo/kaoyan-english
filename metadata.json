@@ -1,0 +1,7 @@
+{
+  "name": "Copy of Kaoyan Essay Grader",
+  "description": "AI-powered grading assistant for Postgraduate Entrance Exam English compositions (English I & II) with OCR capabilities.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
